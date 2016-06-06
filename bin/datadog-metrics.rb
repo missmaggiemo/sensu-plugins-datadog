@@ -41,11 +41,7 @@ class DatadogMetrics < Sensu::Handler
   #
   def handle
     @dog = Dogapi::Client.new(settings['datadog']['api_key'], settings['datadog']['app_key'])
-
-    @event['check']['output'].split("\n").each do |line|
-      name, value, timestamp = line.split(/\s+/)
-      emit_metric(name, value, timestamp)
-    end
+    emit_metric(@event['check']['name'], @event['check']['status'], @event['client']['name'], @event['check']['executed'])
   end
 
   # Push metric point
@@ -53,9 +49,10 @@ class DatadogMetrics < Sensu::Handler
   # @param name       [String]
   # @param value      [String]
   # @param _timestamp [String]
-  def emit_metric(name, value, _timestamp)
-    timeout(3) do
-      @dog.emit_point(name, value, host: @event['client']['name'])
+  def emit_metric(name, value, host, _timestamp)
+    Timeout::timeout(3) do
+      puts "datadog -- sending metric name: #{name}, value: #{value}, host: #{host}"
+      @dog.emit_point(name, value, host: host)
     end
   # Raised when any metrics could not be sent
   #

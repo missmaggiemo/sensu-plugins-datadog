@@ -31,12 +31,19 @@ require 'dogapi'
 # Datadog notifications
 #
 class DatadogNotif < Sensu::Handler
-  # filter disabled alerts and exit with an 'OK' status if it is
-  # else handle the alert as needed
+
+  # Use our custom filter, and handle the remaining events with datadog
   #
   def handle
     filter
     datadog
+  end
+
+  # Only filter disabled or silenced alerts
+  #
+  def filter
+    filter_disabled
+    filter_silenced
   end
 
   # determine the action to take for the event
@@ -59,15 +66,6 @@ class DatadogNotif < Sensu::Handler
     end
   end
 
-  # filter disabled alerts and exit with an 'OK' status if it is
-  def filter
-    # #YELLOW
-    if @event['check']['alert'] == false # rubocop:disable GuardClause
-      puts 'alert disabled -- filtered event ' + [@event['client']['name'], @event['check']['name']].join(' : ')
-      exit 0
-    end
-  end
-
   # submit the event to datadog
   def datadog
     description = @event['notification'] || [@event['client']['name'], @event['check']['name'], @event['check']['output']].join(' ')
@@ -80,7 +78,7 @@ class DatadogNotif < Sensu::Handler
     # add the subscibers for the event to the tags
     tags.concat(@event['check']['subscribers']) unless @event['check']['subscribers'].nil?
     begin
-      timeout(3) do
+      Timeout::timeout(3) do
         dog = Dogapi::Client.new(settings['datadog']['api_key'], settings['datadog']['app_key'])
         response = dog.emit_event(Dogapi::Event.new(
                                     description,
@@ -88,13 +86,13 @@ class DatadogNotif < Sensu::Handler
                                     tags: tags,
                                     alert_type: action,
                                     priority: priority,
-                                    source_type_name: settings['datadog']['source_type_name'] || 'sensu', # let the user set the source_type_name
+                                    source_type_name: settings['datadog']['source_type_name'],
                                     aggregation_key: @event['check']['name']
         ), host: @event['client']['name'])
 
         begin
           if response[0] == '202'
-            puts 'Submitted event to Datadog'
+            puts "Submitted event to Datadog, name: #{@event['check']['name']}, description: #{description}"
           else
             puts "Unexpected response from Datadog: HTTP code #{response[0]}"
           end
